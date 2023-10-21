@@ -1,10 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+cmake_minimum_required(VERSION 3.16)
+
 message(STATUS "quicproxy: Configuration start...")
 project(quicproxy)
-
-cmake_minimum_required(VERSION 3.16)
 
 set(QPROXY_VER_BUILD_ID "0" CACHE STRING "The version build ID")
 message(STATUS "quicproxy: Version Build ID: ${QPROXY_VER_BUILD_ID}")
