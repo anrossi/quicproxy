@@ -43,6 +43,7 @@ struct QuicProxyStreamContext {
 const QUIC_API_TABLE* MsQuic = nullptr;
 HQUIC Registration = nullptr;
 HQUIC ClientConfig = nullptr;
+HQUIC ServerConfig = nullptr;
 uint16_t DestPort = 0;
 const char* DestAddrStr = nullptr;
 QUIC_BUFFER Alpn{};
@@ -52,11 +53,12 @@ const char* UsageString =
     "  quicproxy.exe -listen:<addr or *> [-listenport:<###> (def:%u)]"
     "  -dest:<addr> -destport:<###>"
     "  -thumbprint:<cert thumbprint>"
-    "  [-alpn:<str> (def:%s)] [-streams:<###> (def:%u)]";
+    "  [-alpn:<str> (def:'%s')] [-streams:<###> (def:%u)]";
 
 void PrintUsage() {
     printf(UsageString, DEFAULT_PROXY_LISTEN_PORT, DEFAULT_PROXY_ALPN, DEFAULT_PROXY_STREAMS);
 }
+
 _Function_class_(QUIC_STREAM_CALLBACK)
 QUIC_STATUS
 QUIC_API
@@ -170,12 +172,14 @@ QuicProxyConnectionCallback(
     QuicProxyConnContext* Peer = (QuicProxyConnContext*)Context;
     switch(Event->Type) {
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+        printf("Shutdown by transport 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         MsQuic->ConnectionShutdown(
             Peer->Conn,
             QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
             Event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
+        printf("Shutdown by peer\n");
         MsQuic->ConnectionShutdown(
             Peer->Conn,
             QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -303,6 +307,7 @@ QuicProxyListenerCallback(
             goto Exit;
         }
         MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, QuicProxyConnectionCallback, ThisContext);
+        MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, ServerConfig);
         break;
     }
     case QUIC_LISTENER_EVENT_STOP_COMPLETE:
@@ -319,6 +324,12 @@ Exit:
 
 
 int main(int argc, char **argv) {
+    if (GetFlag(argc, argv, "help") ||
+        GetFlag(argc, argv, "?")) {
+        PrintUsage();
+        return -1;
+    }
+
     uint16_t ListenPort = DEFAULT_PROXY_LISTEN_PORT;
     TryGetValue(argc, argv, "listenport", &ListenPort);
 
@@ -360,7 +371,7 @@ int main(int argc, char **argv) {
     Settings.ServerResumptionLevel = QUIC_SERVER_RESUME_AND_ZERORTT;
     Settings.IsSet.ServerResumptionLevel = TRUE;
 
-    HQUIC Configuration =
+    ServerConfig =
         GetServerConfigurationFromArgs(
             argc,
             argv,
@@ -368,7 +379,7 @@ int main(int argc, char **argv) {
             Registration,
             &Alpn, 1,
             &Settings, sizeof(Settings));
-    if (!Configuration) {
+    if (!ServerConfig) {
         printf("Failed to load configuration from args!\n");
         return -1;
     }
@@ -413,7 +424,7 @@ int main(int argc, char **argv) {
 
     MsQuic->ListenerStop(Listener);
     MsQuic->ListenerClose(Listener);
-    FreeServerConfiguration(MsQuic, Configuration);
+    MsQuic->ConfigurationClose(ServerConfig);
     MsQuic->ConfigurationClose(ClientConfig);
     MsQuic->RegistrationShutdown(
         Registration,
